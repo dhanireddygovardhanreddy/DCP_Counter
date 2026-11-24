@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DCP OV & VF Mastered List Analyzer</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- SheetJS for local client-side Excel reading & 8-sheet workbook generation -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="logo-badge">DCP</div>
+      <div>
+        <h1>DCP OV &amp; VF Mastered List Analyzer</h1>
+        <p class="subtitle">100% Client-Side Mastered List Auditing &amp; Package Counter</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="privacy-pill">Local Browser Processing • Zero Server Upload</span>
+      <button id="themeToggle" class="btn btn-secondary btn-sm" title="Toggle Dark/Light Theme">Toggle Theme</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- LEFT COLUMN: UPLOAD & FILTER CONTROLS -->
+    <section class="left-panel">
+      <!-- 1. File Upload & Queue -->
+      <div class="card">
+        <div class="card-header">
+          <h2>1. File Upload &amp; Queue</h2>
+          <span id="fileCountBadge" class="badge">0 file(s) queued</span>
+        </div>
+
+        <div id="dropZone" class="drop-zone" tabindex="0">
+          <div class="drop-icon">&#8682;</div>
+          <p class="drop-title">Drag &amp; Drop Excel Files (.xlsx / .xls) Here</p>
+          <p class="drop-hint">or click to browse one or multiple weekly mastered lists</p>
+          <input type="file" id="fileInput" accept=".xlsx,.xls" multiple hidden />
+        </div>
+
+        <div class="queue-actions">
+          <button id="browseBtn" class="btn btn-secondary btn-sm">Add Excel File(s)...</button>
+          <button id="clearQueueBtn" class="btn btn-ghost btn-sm">Clear Queue</button>
+        </div>
+
+        <ul id="fileList" class="file-list"></ul>
+      </div>
+
+      <!-- 2. Filter & Processing Configuration -->
+      <div class="card">
+        <div class="card-header">
+          <h2>2. Filter &amp; Processing Configuration</h2>
+        </div>
+
+        <div class="form-row">
+          <label for="sheetSelect">Target Worksheet:</label>
+          <select id="sheetSelect" class="select-input">
+            <option value="">Auto (First Sheet)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <span class="group-label">Multi-File Output Mode</span>
+          <div class="radio-row">
+            <label class="radio-label">
+              <input type="radio" name="batchMode" value="COMBINED" checked />
+              <span>Combined Master (Deduplicated)</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="batchMode" value="INDIVIDUAL" />
+              <span>Separate Report per File</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <span class="group-label">Inclusion Rules</span>
+          <div class="checkbox-grid">
+            <label class="check-label">
+              <input type="checkbox" id="chkTrailers" />
+              <span>Include TRAILERS section</span>
+            </label>
+            <label class="check-label">
+              <input type="checkbox" id="chkAdcc" checked />
+              <span>Include ADCC / CCAP (-CCAP_)</span>
+            </label>
+            <label class="check-label">
+              <input type="checkbox" id="chkSubtitles" />
+              <span>Include Subtitled DCPs (EN / AR / MS)</span>
+            </label>
+            <label class="check-label warn-text">
+              <input type="checkbox" id="chkLogOnly" />
+              <span>Show Log Only (Skip Excel Download)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <span class="group-label">Extract ONLY Specific Format / Version</span>
+          <div class="specialty-grid" id="specialtyGrid">
+            <label class="radio-label">
+              <input type="radio" name="specialtyMode" value="ALL" checked />
+              <span>All Packages (Standard)</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="specialtyMode" value="ONLY_TRAILERS" />
+              <span>Only Trailers</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="specialtyMode" value="ONLY_ADCC" />
+              <span>Only ADCC / CCAP</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="specialtyMode" value="ONLY_EPIQ" />
+              <span>Only EPIQ</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="specialtyMode" value="ONLY_FLAT" />
+              <span>Only Flat (_F_)</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="specialtyMode" value="ONLY_SCOPE" />
+              <span>Only Scope (_S_ only)</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="specialtyMode" value="ONLY_HDR" />
+              <span>Only HDR (All HDR / DVis)</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="specialtyMode" value="ONLY_BARCO_HDR" />
+              <span>Only HDR by Barco</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="primary-actions">
+          <button id="analyzeBtn" class="btn btn-primary" disabled>Analyze &amp; Generate Report</button>
+          <button id="resetFiltersBtn" class="btn btn-secondary">Reset Filters</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: KPI CARDS, LAB TABLE & LOG -->
+    <section class="right-panel">
+      <!-- KPI Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Unique Movies</span>
+          <span id="kpiMovies" class="kpi-value">—</span>
+          <span class="kpi-sub">Consolidated by MRN / Title</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Overall OV Count</span>
+          <span id="kpiOv" class="kpi-value accent-ov">—</span>
+          <span class="kpi-sub">Original Versions</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Overall VF Count</span>
+          <span id="kpiVf" class="kpi-value accent-vf">—</span>
+          <span class="kpi-sub">Version Files (Priority)</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Grand Total Packages</span>
+          <span id="kpiTotal" class="kpi-value accent-total">—</span>
+          <span class="kpi-sub">OV + VF Counted</span>
+        </div>
+      </div>
+
+      <!-- Lab-wise Breakdown Table -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Lab-wise Breakdown</h2>
+          <span id="activeModePill" class="badge">All Packages (Standard)</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Lab / Studio</th>
+                <th class="num">Unique Movies</th>
+                <th class="num">OV Count</th>
+                <th class="num">VF Count</th>
+                <th class="num">Grand Total</th>
+                <th class="num">Share (%)</th>
+              </tr>
+            </thead>
+            <tbody id="labTableBody">
+              <tr>
+                <td colspan="6" class="empty-cell">Upload and analyze a mastered list workbook to view lab breakdown.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Terminal Log & Validation Summary -->
+      <div class="card log-card">
+        <div class="card-header">
+          <h2>Validation &amp; Processing Log</h2>
+          <div class="log-actions">
+            <button id="downloadLastBtn" class="btn btn-primary btn-sm" disabled>Download 8-Sheet Excel</button>
+            <button id="copyLogBtn" class="btn btn-secondary btn-sm">Copy Log</button>
+            <button id="clearLogBtn" class="btn btn-ghost btn-sm">Clear</button>
+          </div>
+        </div>
+        <pre id="logOutput" class="log-console">Ready. Drag &amp; drop one or more Hyderabad Mastered List Excel files (.xlsx / .xls) on the left to begin.</pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
