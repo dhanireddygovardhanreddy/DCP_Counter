@@ -7,6 +7,8 @@ const VERSION_SUFFIX_PATTERN = /_(OV|VF|CC)(?:[-_(\s]|$)/i;
 const PART_TOKEN_PATTERN = /[-_](?:P|PT|PART)[-_]?0?([1-9])(?=[-_])/gi;
 const P1_REEL_PATTERN = /[-_](?:P|PT|PART)[-_]?0?1(?=[-_])/i;
 const LANG_SUB_PATTERN = /_(?:S|F|C-\d+)_([A-Z]{2,3})-([A-Z]{2,3})(?:-([A-Z0-9]+))?_/i;
+const isTrailerCpl = /_(TLR|TSR|PRO|ADV|PSA|INT|RTG|POL|XSN)(?:[-_]|$)/i.test(movieCell);
+const effectiveIsTrailer = inTrailers || isTrailerCpl;
 
 const SPECIALTY_MODES = {
   ALL: "All Packages (Standard)",
@@ -230,15 +232,27 @@ function processMasteredFiles(fileObjs, options) {
       }
 
       const upperVals = rowVals.map((v) => v.toUpperCase());
+      const MOVIE_COL_ALIASES = new Set([
+            "MOVIE",
+            "MOVIE NAME",
+            "COMPOSITION",
+            "COMPOSITION NAME",
+            "CPL",
+            "CPL NAME",
+            "PACKAGE",
+             "PACKAGE NAME",
+            "CONTENT",
+            "TITLE",
+            ]);
       if (
-        (upperVals.includes("MOVIE") || upperVals.includes("MOVIE NAME")) &&
-        (upperVals.includes("LANGUAGE") || upperVals.includes("FORMAT"))
+        upperVals.some((v) => MOVIE_COL_ALIASES.has(v)) &&
+        (upperVals.includes("LANGUAGE") || upperVals.includes("FORMAT")) || upperVals.some((v) => v.includes("DATE")))
       ) {
         headerMap = {};
         upperVals.forEach((v, cIdx) => {
           if (["SNO", "S:NO", "S.NO", "SL NO", "SL.NO"].includes(v)) headerMap.sno = cIdx;
           else if (v.includes("DATE")) headerMap.date = cIdx;
-          else if (["MOVIE", "MOVIE NAME", "PACKAGE", "CPL"].includes(v)) headerMap.movie = cIdx;
+          else if (MOVIE_COL_ALIASES.has(v)) headerMap.movie = cIdx;
           else if (v.includes("LANG")) headerMap.lang = cIdx;
           else if (v.includes("FORMAT")) headerMap.format = cIdx;
           else if (v.includes("MRN")) headerMap.mrn = cIdx;
@@ -260,6 +274,10 @@ function processMasteredFiles(fileObjs, options) {
       }
 
       if (headerMap.movie === undefined) {
+        const cplColIdx = rowVals.findIndex((cell) => isCplFilename(cell));
+  if (cplColIdx !== -1) {
+    headerMap.movie = cplColIdx;
+  } else {
         auditRows.push({
           source_file: srcName,
           row_num: excelRowNum,
@@ -273,6 +291,7 @@ function processMasteredFiles(fileObjs, options) {
         });
         continue;
       }
+    }
 
       const movieCell = rowVals[headerMap.movie] || "";
       const labCell = headerMap.lab !== undefined ? rowVals[headerMap.lab] || "" : "";
