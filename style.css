@@ -63,13 +63,23 @@ body {
 }
 
 .logo-badge {
-  background: var(--primary);
-  color: #fff;
+  /* background: #ffffff; */
+  color: #0f172a;
   font-weight: 800;
   font-size: 14px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  letter-spacing: 0.5px;
+  padding: 5px 10px;
+  /* border-radius: 8px; */
+  /* border: 1px solid var(--border); */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-logo {
+  height: 40px;
+  width: auto;
+  display: block;
+  object-fit: contain;
 }
 
 .topbar h1 {
@@ -445,3 +455,4 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
