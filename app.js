@@ -3,12 +3,24 @@
 // ==============================================================================
 
 const CPL_TYPE_PATTERN = /_(FTR|TSR|SHR|TLR|PSA|ADV|INT|PRO|RTG|POL|XSN)(?:[-_]|$)/i;
+const TRAILER_CPL_PATTERN = /_(TLR|TSR|PRO|ADV|PSA|INT|RTG|POL|XSN)(?:[-_]|$)/i;
 const VERSION_SUFFIX_PATTERN = /_(OV|VF|CC)(?:[-_(\s]|$)/i;
 const PART_TOKEN_PATTERN = /[-_](?:P|PT|PART)[-_]?0?([1-9])(?=[-_])/gi;
 const P1_REEL_PATTERN = /[-_](?:P|PT|PART)[-_]?0?1(?=[-_])/i;
 const LANG_SUB_PATTERN = /_(?:S|F|C-\d+)_([A-Z]{2,3})-([A-Z]{2,3})(?:-([A-Z0-9]+))?_/i;
-const isTrailerCpl = /_(TLR|TSR|PRO|ADV|PSA|INT|RTG|POL|XSN)(?:[-_]|$)/i.test(movieCell);
-const effectiveIsTrailer = inTrailers || isTrailerCpl;
+
+const MOVIE_COL_ALIASES = new Set([
+  "MOVIE",
+  "MOVIE NAME",
+  "COMPOSITION",
+  "COMPOSITION NAME",
+  "CPL",
+  "CPL NAME",
+  "PACKAGE",
+  "PACKAGE NAME",
+  "CONTENT",
+  "TITLE",
+]);
 
 const SPECIALTY_MODES = {
   ALL: "All Packages (Standard)",
@@ -22,7 +34,7 @@ const SPECIALTY_MODES = {
 };
 
 // Application State
-let queuedFiles = []; // Array of { name, arrayBuffer, workbook }
+let queuedFiles = []; // Array of { name, size, workbook }
 let lastGeneratedReport = null; // { results, filename }
 
 // ==============================================================================
@@ -46,9 +58,9 @@ function extractVersionType(cpl) {
 }
 
 function normalizeCplBase(cpl) {
-  let s = cpl.replace(/\s*\(.*?\)\s*$/, "").trim();
+  let s = cpl.replace(/\s*\(.*$/g, "").trim();
   s = s.replace(PART_TOKEN_PATTERN, "");
-  s = s.replace(/_(?:OV|VF|CC)$/i, "");
+  s = s.replace(/_(?:OV|VF|CC)(?:[-_][A-Z0-9]+)?$/i, "");
   return s;
 }
 
@@ -213,7 +225,7 @@ function processMasteredFiles(fileObjs, options) {
       const rowVals = rows[rIdx].map(cleanStr);
       if (!rowVals.some((v) => v !== "")) continue;
 
-      if (rowVals.some((v) => v.toUpperCase() === "TRAILERS")) {
+      if (rowVals.some((v) => /^TRAILER(?:S|\s+DCP'?S)?:?$/i.test(v))) {
         inTrailers = true;
         inIngesting = false;
         currentBlock = null;
@@ -221,7 +233,22 @@ function processMasteredFiles(fileObjs, options) {
           source_file: srcName,
           row_num: excelRowNum,
           section: "Trailers Banner",
-          raw_text: "TRAILERS",
+          raw_text: rowVals.filter(Boolean).join(" | "),
+          norm_pkg: "-",
+          lab: "-",
+          ver_type: "Non-Package",
+          status: "Excluded",
+          reason: "Section Banner",
+        });
+        continue;
+      }
+
+      if (rowVals.some((v) => /^(OTHER\s+LAB\s+DCP'?S?|RELEASED\s+DCP'?S?):?$/i.test(v))) {
+        auditRows.push({
+          source_file: srcName,
+          row_num: excelRowNum,
+          section: "Section Banner",
+          raw_text: rowVals.filter(Boolean).join(" | "),
           norm_pkg: "-",
           lab: "-",
           ver_type: "Non-Package",
@@ -232,25 +259,15 @@ function processMasteredFiles(fileObjs, options) {
       }
 
       const upperVals = rowVals.map((v) => v.toUpperCase());
-      const MOVIE_COL_ALIASES = new Set([
-            "MOVIE",
-            "MOVIE NAME",
-            "COMPOSITION",
-            "COMPOSITION NAME",
-            "CPL",
-            "CPL NAME",
-            "PACKAGE",
-             "PACKAGE NAME",
-            "CONTENT",
-            "TITLE",
-            ]);
       if (
         upperVals.some((v) => MOVIE_COL_ALIASES.has(v)) &&
-        (upperVals.includes("LANGUAGE") || upperVals.includes("FORMAT")) || upperVals.some((v) => v.includes("DATE")))
+        (upperVals.includes("LANGUAGE") ||
+          upperVals.includes("FORMAT") ||
+          upperVals.some((v) => v.includes("DATE")))
       ) {
         headerMap = {};
         upperVals.forEach((v, cIdx) => {
-          if (["SNO", "S:NO", "S.NO", "SL NO", "SL.NO"].includes(v)) headerMap.sno = cIdx;
+          if (["SNO", "S:NO", "S.NO", "SL NO", "SL.NO", "SNO."].includes(v)) headerMap.sno = cIdx;
           else if (v.includes("DATE")) headerMap.date = cIdx;
           else if (MOVIE_COL_ALIASES.has(v)) headerMap.movie = cIdx;
           else if (v.includes("LANG")) headerMap.lang = cIdx;
@@ -275,23 +292,23 @@ function processMasteredFiles(fileObjs, options) {
 
       if (headerMap.movie === undefined) {
         const cplColIdx = rowVals.findIndex((cell) => isCplFilename(cell));
-  if (cplColIdx !== -1) {
-    headerMap.movie = cplColIdx;
-  } else {
-        auditRows.push({
-          source_file: srcName,
-          row_num: excelRowNum,
-          section: "Top Metadata",
-          raw_text: rowVals.filter(Boolean).join(" | "),
-          norm_pkg: "-",
-          lab: "-",
-          ver_type: "Non-Package",
-          status: "Excluded",
-          reason: "Title / Metadata Row",
-        });
-        continue;
+        if (cplColIdx !== -1) {
+          headerMap.movie = cplColIdx;
+        } else {
+          auditRows.push({
+            source_file: srcName,
+            row_num: excelRowNum,
+            section: "Top Metadata",
+            raw_text: rowVals.filter(Boolean).join(" | "),
+            norm_pkg: "-",
+            lab: "-",
+            ver_type: "Non-Package",
+            status: "Excluded",
+            reason: "Title / Metadata Row",
+          });
+          continue;
+        }
       }
-    }
 
       const movieCell = rowVals[headerMap.movie] || "";
       const labCell = headerMap.lab !== undefined ? rowVals[headerMap.lab] || "" : "";
@@ -316,7 +333,10 @@ function processMasteredFiles(fileObjs, options) {
         continue;
       }
 
-      if (!inTrailers) {
+      const isTrailerCpl = TRAILER_CPL_PATTERN.test(movieCell);
+      const effectiveIsTrailer = inTrailers || isTrailerCpl;
+
+      if (!effectiveIsTrailer) {
         const isInstructionNote = /^(step[-\s]*\d+|create\s+show|note\b|ingesting\s+details)/i.test(
           movieCell
         );
@@ -502,7 +522,7 @@ function processMasteredFiles(fileObjs, options) {
           });
         }
       } else {
-        // TRAILERS SUB-TABLE
+        // TRAILERS / PROMOS SUB-TABLE
         if (isCplFilename(movieCell)) {
           const ver = extractVersionType(movieCell);
           const normBase = normalizeCplBase(movieCell);
